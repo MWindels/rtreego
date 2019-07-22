@@ -599,11 +599,23 @@ func (tree *Rtree) condenseTree(n *node) {
 
 // Searching
 
+// Condition represents a condition checked at every node during a SearchCondition
+// call. The parameter should be treated as read-only. The nbb parameter represents
+// the current node's bounding box. If pass is true, then the search continues down
+// the current branch. Otherwise, the search does not continue down the current branch.
+type Condition func(nbb *Rect) (pass bool)
+
+// SearchCondition returns all objects which are contained in (and parented by) nodes
+// whose bounding boxes satisfy a specified condition.
+func (tree *Rtree) SearchCondition(cond Condition, filters ...Filter) []Spatial {
+	return tree.searchCondition([]Spatial{}, tree.root, cond, filters)
+}
+
 // SearchIntersect returns all objects that intersect the specified rectangle.
 // Implemented per Section 3.1 of "R-trees: A Dynamic Index Structure for
 // Spatial Searching" by A. Guttman, Proceedings of ACM SIGMOD, p. 47-57, 1984.
 func (tree *Rtree) SearchIntersect(bb *Rect, filters ...Filter) []Spatial {
-	return tree.searchIntersect([]Spatial{}, tree.root, bb, filters)
+	return tree.searchCondition([]Spatial{}, tree.root, func(nbb *Rect) bool {return intersect(nbb, bb) != nil}, filters)
 }
 
 // SearchIntersectWithLimit is similar to SearchIntersect, but returns
@@ -621,14 +633,14 @@ func (tree *Rtree) SearchIntersectWithLimit(k int, bb *Rect) []Spatial {
 	return tree.SearchIntersect(bb, LimitFilter(k))
 }
 
-func (tree *Rtree) searchIntersect(results []Spatial, n *node, bb *Rect, filters []Filter) []Spatial {
+func (tree *Rtree) searchCondition(results []Spatial, n *node, cond Condition, filters []Filter) []Spatial {
 	for _, e := range n.entries {
-		if intersect(e.bb, bb) == nil {
+		if !cond(e.bb) {
 			continue
 		}
 
 		if !n.leaf {
-			results = tree.searchIntersect(results, e.child, bb, filters)
+			results = tree.searchCondition(results, e.child, cond, filters)
 			continue
 		}
 
